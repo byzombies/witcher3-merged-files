@@ -8,6 +8,11 @@
 
 class CPlayerInput 
 {
+	//---=== modFriendlyHUD ===---
+	private const var KEY_HOLD_WINDOW			: float;	default KEY_HOLD_WINDOW = 0.4;
+	private var controllerQuickInventoryHandled : bool;
+	//---=== modFriendlyHUD ===---
+
 	private saved 	var actionLocks 	: array<array<SInputActionLock>>;		
 	
 	private	var	totalCameraPresetChange : float;		default totalCameraPresetChange = 0.0f;
@@ -44,6 +49,19 @@ class CPlayerInput
 				}
 			}
 		}
+		
+		//---=== modFriendlyHUD ===---
+		theInput.RegisterListener( this, 'On3DMarkersToggle', 'Toggle3DMarkers' );
+		theInput.RegisterListener( this, 'OnHUDToggle', 'HUDToggle' );
+		theInput.RegisterListener( this, 'OnPauseGameToggle', 'PauseGameToggle' );
+		theInput.RegisterListener( this, 'OnSwitchCrossbow', 'SwitchCrossbow' );
+		theInput.RegisterListener( this, 'OnPinModuleModfier', 'PinModuleModfier' );
+		theInput.RegisterListener( this, 'OnToggleEssentials', 'ToggleEssentials' );
+		theInput.RegisterListener( this, 'OnHoldToSeeHub', 'HoldToSeeEssentials' );
+		theInput.RegisterListener( this, 'OnHoldToSeeChar', 'HoldToSeeCharStats' );
+		theInput.RegisterListener( this, 'OnHoldToSeeMapPC', 'HoldToSeeMap' );
+		theInput.RegisterListener( this, 'OnHoldToSeeJour', 'HoldToSeeQuests' );
+		//---=== modFriendlyHUD ===---
 		
 		theInput.RegisterListener( this, 'OnCommSprint', 'Sprint' );
 		theInput.RegisterListener( this, 'OnCommSprintToggle', 'SprintToggle' );
@@ -173,9 +191,100 @@ class CPlayerInput
 	function Destroy()
 	{
 	}
+
+	//---=== modFriendlyHUD ===---
+	event OnPinModuleModfier( action : SInputAction )
+	{
+	}
 	
+	private var savedQuickSlot : EEquipmentSlots; default savedQuickSlot = EES_InvalidSlot;
 	
-	
+	event OnSwitchCrossbow( action : SInputAction )
+	{
+		var item1, item2, crossbow, selectedItem : SItemUniqueId;
+		var witcher : W3PlayerWitcher;
+		
+		if( thePlayer.IsCiri() )
+		{
+			return false;
+		}
+		
+		if( IsPressed( action ) )
+		{
+			witcher = GetWitcherPlayer();
+			selectedItem = witcher.GetSelectedItemId();
+			witcher.GetItemEquippedOnSlot( EES_Petard1, item1 );
+			witcher.GetItemEquippedOnSlot( EES_Petard2, item2 );
+			witcher.GetItemEquippedOnSlot( EES_RangedWeapon, crossbow );
+			if ( !witcher.inv.IsItemCrossbow( selectedItem ) )
+			{
+				if ( selectedItem == item1 && selectedItem != GetInvalidUniqueId() )
+				{
+					savedQuickSlot = EES_Petard1;
+				}
+				else if ( selectedItem == item2 && selectedItem != GetInvalidUniqueId() )
+				{
+					savedQuickSlot = EES_Petard2;
+				}
+				else
+				{
+					savedQuickSlot = EES_InvalidSlot;
+				}
+				if ( crossbow != GetInvalidUniqueId() )
+				{
+					witcher.OnRadialMenuItemChoose( "Crossbow" );
+				}
+			}
+			else
+			{
+				if ( savedQuickSlot == EES_Petard1 && item1 != GetInvalidUniqueId() )
+				{
+					witcher.OnRadialMenuItemChoose( "Slot1" );
+				}
+				else if ( savedQuickSlot == EES_Petard2 && item2 != GetInvalidUniqueId() )
+				{
+					witcher.OnRadialMenuItemChoose( "Slot2" );
+				}
+				else if ( item1 != GetInvalidUniqueId() )
+				{
+					witcher.OnRadialMenuItemChoose( "Slot1" );
+				}
+				else if ( item2 != GetInvalidUniqueId() )
+				{
+					witcher.OnRadialMenuItemChoose( "Slot2" );
+				}
+				savedQuickSlot = EES_InvalidSlot;
+			}
+		}
+	}
+
+	event On3DMarkersToggle( action : SInputAction )
+	{
+		if( IsPressed( action ) )
+		{
+			GetFHUDConfig().Toggle3DMarkers();
+		}
+	}
+
+	event OnPauseGameToggle( action : SInputAction )
+	{
+		var hud : CR4ScriptedHud;
+		
+		if( IsPressed( action ) )
+		{
+			if ( !theGame.IsPausedForReason( "user_pause" ) && !theGame.HasBlackscreenRequested() )
+			{
+				theGame.Pause( "user_pause" );
+				theSound.SoundEvent("system_pause");
+			}
+			else if ( theGame.IsPausedForReason( "user_pause" ) && !theGame.HasBlackscreenRequested() )
+			{
+				theGame.Unpause( "user_pause" );
+				theSound.SoundEvent("system_resume");
+			}
+		}
+	}
+	//---=== modFriendlyHUD ===--- 
 	
 	
 	public function FindActionLockIndex(action : EInputActionBlock, sourceName : name) : int
@@ -654,7 +763,9 @@ class CPlayerInput
 					}
 				}				
 			}
-			else
+			//---=== modFriendlyHUD ===---
+			else if( doubleTap || theInput.LastUsedPCInput() )
+			//---=== modFriendlyHUD ===---
 			{
 				if( thePlayer.IsInInterior() )
 					thePlayer.DisplayActionDisallowedHudMessage( EIAB_Undefined, false, true );
@@ -671,17 +782,64 @@ class CPlayerInput
 	}
 	
 	
-	
-	
-	
-	
-	event OnCommMenuHub( action : SInputAction )
+	//---=== modFriendlyHUD ===---
+	private var essentialsPressTimestamp : float;
+	event OnToggleEssentials( action : SInputAction )
 	{
-		if(IsReleased(action))
+		if( IsPressed( action ) && thePlayer.GetCurrentStateName() != 'ExplorationMeditation' )
 		{
-			PushMenuHub();
+			thePlayer.RemoveTimer( 'PinEssentialGroupTimer' );
+			thePlayer.AddTimer( 'PinEssentialGroupTimer', DOUBLE_TAP_WINDOW, false );
+			if( essentialsPressTimestamp + DOUBLE_TAP_WINDOW >= theGame.GetEngineTimeAsSeconds() )
+			{
+				thePlayer.RemoveTimer( 'PinEssentialGroupTimer' );
+			}
+			essentialsPressTimestamp = theGame.GetEngineTimeAsSeconds();
 		}
 	}
+	
+	event OnHoldToSeeHub( action : SInputAction )
+	{
+		if( theInput.IsActionPressed( 'PinModuleModfier' ) )
+		{
+			if( IsReleased( action ) )
+			{
+				ToggleEssentialModules( !IsHUDGroupEnabledForReason( GetFHUDConfig().essentialModules, "PinEssentialGroup" ), "PinEssentialGroup" );
+			}
+		}
+		else
+		{
+			if ( IsPressed(action) )
+			{
+				thePlayer.AddTimer( 'EssentialsOnTimer' , KEY_HOLD_WINDOW, false );
+			}
+			if ( IsReleased(action) )
+			{
+				thePlayer.RemoveTimer( 'EssentialsOnTimer' );
+				ToggleEssentialModules( false, "EssentialModulesHotkey" );
+			}
+		}
+	}
+	
+	private var pressHubTime : float;
+	event OnCommMenuHub( action : SInputAction )
+	{
+		if( !theInput.IsActionPressed( 'PinModuleModfier' ) )
+		{
+			if( IsPressed(action) )
+			{
+				pressHubTime = theGame.GetEngineTimeAsSeconds();
+			}
+			if( IsReleased( action ) )
+			{
+				if ( theGame.GetEngineTimeAsSeconds() - pressHubTime < KEY_HOLD_WINDOW || !ActionsHaveConflict( 'HubMenu', 'HoldToSeeEssentials' ) )
+				{
+					PushMenuHub();
+				}
+			}
+		}
+	}
+	//---=== modFriendlyHUD ===---
 	
 	final function PushMenuHub()
 	{
@@ -691,16 +849,51 @@ class CPlayerInput
 		}
 		theGame.RequestMenu('CommonMenu');
 	}
+
+	//---=== modFriendlyHUD ===---
+	event OnHoldToSeeChar( action : SInputAction )
+	{
+		if( theInput.IsActionPressed( 'PinModuleModfier' ) )
+		{
+			if( IsReleased( action ) )
+			{
+				ToggleCharacterModules( !IsHUDGroupEnabledForReason( GetFHUDConfig().characterModules, "PinCharacterGroup" ), "PinCharacterGroup" );
+			}
+		}
+		else
+		{
+			if ( IsPressed(action) )
+			{
+				thePlayer.AddTimer( 'CharOnTimer' , KEY_HOLD_WINDOW, false );
+			}
+			if ( IsReleased(action) )
+			{
+				thePlayer.RemoveTimer( 'CharOnTimer' );
+				ToggleCharacterModules( false, "CharModulesHotkey" );
+			}
+		}
+	}
 	
-	
-	
+	private var pressCharTime : float;
 	event OnCommPanelChar( action : SInputAction )
 	{
-		if(IsReleased(action))
+		if( !theInput.IsActionPressed( 'PinModuleModfier' ) )
 		{
-			PushCharacterScreen();
+			if( IsPressed(action) )
+			{
+				pressCharTime = theGame.GetEngineTimeAsSeconds();
+			}
+			if( IsReleased( action ) )
+			{
+				if ( theGame.GetEngineTimeAsSeconds() - pressCharTime < KEY_HOLD_WINDOW || !ActionsHaveConflict( 'PanelChar', 'HoldToSeeCharStats' ) )
+				{
+					PushCharacterScreen();
+				}
+			}
 		}
-	} 
+	}
+	//---=== modFriendlyHUD ===---
+
 	final function PushCharacterScreen()
 	{
 		if ( theGame.IsBlackscreenOrFading() )
@@ -721,8 +914,14 @@ class CPlayerInput
 	
 	event OnCommPanelInv( action : SInputAction )
 	{		
-		if (IsReleased(action))
+		//---=== modFriendlyHUD ===---
+		if ( ( theInput.LastUsedPCInput() && IsReleased(action) ) || ( theInput.LastUsedGamepad() && IsPressed(action) ) )
 		{
+			if ( theInput.IsActionPressed( 'PanelInv' ) )
+			{
+				controllerQuickInventoryHandled = true;
+			}
+		//---=== modFriendlyHUD ===---
 			PushInventoryScreen();
 		}
 	}
@@ -781,15 +980,51 @@ class CPlayerInput
 			}
 		}
 	}	
-	
-	event OnCommPanelMapPC( action : SInputAction )
+
+	//---=== modFriendlyHUD ===---
+	event OnHoldToSeeMapPC( action : SInputAction )
 	{
-		if( IsReleased(action) )
+		if( theInput.IsActionPressed( 'PinModuleModfier' ) )
 		{
-			PushMapScreen();
+			if( IsReleased( action ) )
+			{
+				ToggleMinimapModules( !IsHUDGroupEnabledForReason( GetFHUDConfig().minimapModules, "PinMinimapGroup" ), "PinMinimapGroup" );
+			}
+		}
+		else
+		{
+			if ( IsPressed(action) )
+			{
+				thePlayer.AddTimer( 'MapOnTimer' , KEY_HOLD_WINDOW, false );
+			}
+			if( IsReleased(action) )
+			{
+				thePlayer.RemoveTimer( 'MapOnTimer' );
+				ToggleMinimapModules( false, "MinimapModulesHotkey" );
+			}
 		}
 	}
 	
+	private var pressMapTime : float;
+	event OnCommPanelMapPC( action : SInputAction )
+	{
+		if( !theInput.IsActionPressed( 'PinModuleModfier' ) )
+		{
+			if( IsPressed(action) )
+			{
+				pressMapTime = theGame.GetEngineTimeAsSeconds();
+			}
+			if( IsReleased( action ) )
+			{
+				if ( theGame.GetEngineTimeAsSeconds() - pressMapTime < KEY_HOLD_WINDOW || !ActionsHaveConflict( 'PanelMapPC', 'HoldToSeeMap' ) )
+				{
+					PushMapScreen();
+				}
+			}
+		}
+	}
+	//---=== modFriendlyHUD ===---
+
 	event OnCommPanelMap( action : SInputAction )
 	{
 		if( IsPressed(action) )
@@ -813,14 +1048,50 @@ class CPlayerInput
 		}
 	}
 
-	
-	event OnCommPanelJour( action : SInputAction )
+	//---=== modFriendlyHUD ===---
+	event OnHoldToSeeJour( action : SInputAction )
 	{
-		if( IsReleased(action) )
+		if( theInput.IsActionPressed( 'PinModuleModfier' ) )
 		{
-			PushJournalScreen();
+			if( IsReleased( action ) )
+			{
+				ToggleQuestsModules( !IsHUDGroupEnabledForReason( GetFHUDConfig().questsModules, "PinQuestsGroup" ), "PinQuestsGroup" );
+			}
+		}
+		else
+		{
+			if ( IsPressed(action) )
+			{
+				thePlayer.AddTimer( 'QuestsOnTimer' , KEY_HOLD_WINDOW, false );
+			}
+			if( IsReleased(action) )
+			{
+				thePlayer.RemoveTimer( 'QuestsOnTimer' );
+				ToggleQuestsModules( false, "QuestsModulesHotkey" );
+			}
 		}
 	}
+
+	private var pressJournalTime : float;
+	event OnCommPanelJour( action : SInputAction )
+	{
+		if( !theInput.IsActionPressed( 'PinModuleModfier' ) )
+		{
+			if( IsPressed(action) )
+			{
+				pressJournalTime = theGame.GetEngineTimeAsSeconds();
+			}
+			if( IsReleased( action ) )
+			{
+				if ( theGame.GetEngineTimeAsSeconds() - pressJournalTime < KEY_HOLD_WINDOW || !ActionsHaveConflict( 'PanelJour', 'HoldToSeeQuests' ) )
+				{
+					PushJournalScreen();
+				}
+			}
+		}
+	}
+	//---=== modFriendlyHUD ===---
+	
 	final function PushJournalScreen()
 	{
 		if ( theGame.IsBlackscreenOrFading() )
@@ -1208,6 +1479,13 @@ class CPlayerInput
 	
 	event OnCommDrinkpotionUpperHeld( action : SInputAction )
 	{
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
+	
 		if(!potionModeHold)
 			return false;
 			
@@ -1224,6 +1502,13 @@ class CPlayerInput
 	
 	event OnCommDrinkpotionLowerHeld( action : SInputAction )
 	{
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
+		
 		if(!potionModeHold)
 			return false;
 			
@@ -1281,6 +1566,12 @@ class CPlayerInput
 	
 	event OnCommDrinkPotion1( action : SInputAction )
 	{
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
 		
 		if(thePlayer.IsCiri())
 			return false;
@@ -1310,6 +1601,12 @@ class CPlayerInput
 	{
 		var witcher : W3PlayerWitcher;
 		
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
 		
 		if(thePlayer.IsCiri())
 			return false;
@@ -1337,6 +1634,12 @@ class CPlayerInput
 	
 	event OnCommDrinkPotion3( action : SInputAction )
 	{
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
 		
 		if(thePlayer.IsCiri())
 			return false;
@@ -1361,6 +1664,12 @@ class CPlayerInput
 	{
 		var witcher : W3PlayerWitcher;
 		
+		//---=== modFriendlyHUD ===---
+		if( theInput.LastUsedGamepad() && GetFHUDConfig().enableItemsInRadialMenu && ((CR4HudModuleRadialMenu)theGame.GetHud().GetHudModule( "RadialMenuModule" )).IsRadialMenuOpened() )
+		{
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
 		
 		if(thePlayer.IsCiri())
 			return false;
@@ -2894,6 +3203,15 @@ class CPlayerInput
 	event OnIngameMenu( action : SInputAction )
 	{
 		var openedPanel : name;
+
+		//---=== modFriendlyHUD ===---
+		if ( controllerQuickInventoryHandled )
+		{
+			controllerQuickInventoryHandled = false;
+			return false;
+		}
+		//---=== modFriendlyHUD ===---
+		
 		openedPanel = theGame.GetMenuToOpen(); 
 		
 		if( IsReleased(action) && openedPanel != 'GlossaryTutorialsMenu' && !theGame.GetGuiManager().IsAnyMenu() ) 
