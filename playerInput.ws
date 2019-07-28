@@ -49,6 +49,11 @@ class CPlayerInput
 		theInput.RegisterListener( this, 'OnCommSprintToggle', 'SprintToggle' );
 		theInput.RegisterListener( this, 'OnCommWalkToggle', 'WalkToggle' );
 		theInput.RegisterListener( this, 'OnCommGuard', 'Guard' );
+		//---=== modFriendlyMeditation ===---
+		theInput.RegisterListener( this, 'OnHoldToMeditate', 'HoldToMeditate' );
+		theInput.RegisterListener( this, 'OnMeditationFastForward', 'MeditationFastForward' );
+		theInput.RegisterListener( this, 'OnToggleSpawnCampFire', 'ToggleSpawnCampFire' );
+		//---=== modFriendlyMeditation ===---
 		
 		
 		theInput.RegisterListener( this, 'OnCommSpawnHorse', 'SpawnHorse' );
@@ -838,13 +843,85 @@ class CPlayerInput
 		}	
 	}
 	
+	//---=== modFriendlyMeditation ===---
+	event OnToggleSpawnCampFire( action : SInputAction )
+	{
+		if( IsPressed( action ) && GetWitcherPlayer() )
+		{
+			GetFMeditationConfig().SetSpawnCampFire( !GetFMeditationConfig().SpawnCampFire() );
+			if( !GetFMeditationConfig().BeSilent() )
+			{
+				if( GetFMeditationConfig().SpawnCampFire() )
+					theGame.GetGuiManager().ShowNotification( GetLocStringByKeyExt( "fmedSpawnCampFireOn" ) );
+				else
+					theGame.GetGuiManager().ShowNotification( GetLocStringByKeyExt( "fmedSpawnCampFireOff" ) );
+			}
+		}
+	}
+
+	event OnMeditationFastForward( action : SInputAction )
+	{
+		var witcher : W3PlayerWitcher = GetWitcherPlayer();
+	
+		if( !thePlayer.IsCiri() && witcher )
+		{
+			if( witcher.GetIsPlayerMeditatingInBed() )
+			{
+			}
+			else if( IsPressed( action ) && witcher.IsSkippingTime() )
+			{
+				witcher.MeditationEndFastforward();
+			}
+			else if( IsReleased( action ) && witcher.IsSkippingTime() )
+			{
+				witcher.MeditationEndFastforward();
+			}
+			else if( IsPressed( action ) && witcher.IsMeditating() )
+			{
+				witcher.MeditationStartFastforward();
+			}
+		}
+	}
+	
+	private var inFriendlyMeditation : bool; default inFriendlyMeditation = false;
+	
+	event OnHoldToMeditate( action : SInputAction )
+	{
+		var witcher : W3PlayerWitcher = GetWitcherPlayer();
+		var asToggle : bool;
+		
+		asToggle = GetFMeditationConfig().HotkeyAsToggle() || GetFMeditationConfig().HotkeyManualFastforward();
+		
+		if( IsPressed(action) && witcher )
+		{
+			inFriendlyMeditation = true;
+			if( /*asToggle &&*/ (witcher.IsMeditating() || witcher.IsSkippingTime()) )
+			{
+				witcher.ModEndMeditation();
+			}
+			else
+			{
+				witcher.ModStartMeditation();
+			}
+		}
+		if( IsReleased( action ) && witcher && !asToggle )
+		{
+			witcher.ModEndMeditation();
+		}
+	}
+	
 	event OnCommPanelMeditation( action : SInputAction )
 	{
-		if( IsReleased(action) )
+		if( IsPressed(action) )
+		{
+			inFriendlyMeditation = false;
+		}
+		if( !inFriendlyMeditation && IsReleased( action ) )
 		{
 			PushMeditationScreen();
 		}
 	}
+	//---=== modFriendlyMeditation ===---
 	
 	final function PushMeditationScreen()
 	{
@@ -2630,18 +2707,26 @@ class CPlayerInput
 	
 	event OnMeditationAbort(action : SInputAction)
 	{
-		var med : W3PlayerWitcherStateMeditation;
+		//---=== modFriendlyMeditation ===---
+		//var med : W3PlayerWitcherStateMeditation;
+		//
+		//if (!theGame.GetGuiManager().IsAnyMenu())
+		//{
+		//	med = (W3PlayerWitcherStateMeditation)GetWitcherPlayer().GetCurrentState();
+		//	if(med)
+		//	{
+		//		
+		//		
+		//		med.StopRequested(false);
+		//	}
+		//}
+		var witcher : W3PlayerWitcher = GetWitcherPlayer();
 		
-		if (!theGame.GetGuiManager().IsAnyMenu())
+		if( witcher.IsMeditating() || witcher.IsSkippingTime() )
 		{
-			med = (W3PlayerWitcherStateMeditation)GetWitcherPlayer().GetCurrentState();
-			if(med)
-			{
-				
-				
-				med.StopRequested(false);
-			}
+			witcher.ModEndMeditation();
 		}
+		//---=== modFriendlyMeditation ===---
 	}
 	
 	public final function ClearLocksForNGP()
